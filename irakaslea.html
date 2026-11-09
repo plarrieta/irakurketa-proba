@@ -1,0 +1,56 @@
+<!doctype html><html lang="eu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="estiloa.css"><title>IRAKURKETA PARTEKATUA — V16 Firestore</title></head><body class="teacher-page"><div class="shell"><header><h1>◉ IRAKURKETA PARTEKATUA</h1><span class="status">FIRESTORE · V16 PROBA</span></header>
+<main><aside class="panel stack"><h2>IRAKASLEAREN TXOKOA</h2>
+<div class="muted">Erabili DEFINIZIOAKeko irakasle-kontu bera. Fitxa berean irakasle eta ikasle saioak ez dira nahasten.</div>
+<label for="email">POSTA ELEKTRONIKOA</label><input id="email" type="email" autocomplete="username" placeholder="Irakaslearen kontua">
+<label for="password">PASAHITZA</label><input id="password" type="password" autocomplete="current-password" placeholder="Pasahitza">
+<button id="login" class="primary" disabled>IRAKASLEA: SARTU</button><div class="muted" id="account">Saioa hasi gabe</div>
+<button id="create" disabled>SAIO BERRIA SORTU</button>
+<label for="resumePin">LEHENDIK DAGOEN SAIOA (6 ZIFRA)</label>
+<div class="small-btns"><input id="resumePin" inputmode="numeric" maxlength="6" placeholder="PINa" style="flex:1;min-width:100px"><button id="resume" disabled>BERRESKURATU</button></div>
+<div class="line"></div>
+<label>SAIOAREN KODEA</label><div id="pin" class="pincode">------</div>
+<div class="small-btns"><button id="copyPin" disabled>KOPIATU PINa</button><button id="copy" disabled>KOPIATU IKASLEEN LOTURA</button><button id="closeSession" disabled>SAIOA ITXI</button></div>
+<div class="notice" id="state">Firebase konfigurazioa falta da.</div>
+<div class="muted">«KONEKTATUTA» = saioan erregistratua; oraindik ez da benetako online presentzia neurtzen. Saioak ez dira automatikoki ezabatzen.</div>
+</aside><section class="panel"><h2>IKASLEEN KONEXIO-PANELA</h2>
+<div class="screen"><small>IRAKURKETA PARTEKATUA</small><div id="display">IKASLEAK KONEKTATZEN ARI DIRA...</div></div>
+<div class="board" id="board"></div><div class="muted" id="count">0 / 25 IKASLE ERREGISTRATUTA</div>
+<div class="line"></div><div class="notice">Hau lehen konexio-proba da. «Konektatuta» hemen saioan izena emanda dagoela esan nahi du; oraindik ez dugu online presentzia automatikoki neurtzen.</div>
+</section></main></div><script src="firebase-config.js"></script><script type="module">import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js';
+import {initializeAuth,browserSessionPersistence,signInWithEmailAndPassword,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-auth.js';
+import {getFirestore,doc,collection,getDoc,setDoc,runTransaction,onSnapshot,query,orderBy,serverTimestamp,updateDoc,writeBatch} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js';
+const $=id=>document.getElementById(id);
+const cfg=window.IP_FIREBASE_CONFIG;
+const errorText=e=>({ 'permission-denied':'Baimenik ez. Egiaztatu Firestore arauak eta irakasle-kontua.', 'unavailable':'Konexiorik ez. Egiaztatu Internet.', 'auth/invalid-credential':'Helbidea edo pasahitza ez dira zuzenak.'})[e.code] || (e.message||String(e));
+function message(t,bad=false){$('state').textContent=t;$('state').className='notice '+(bad?'error':'');}
+
+let auth,db,uid=null,pin=null,stopSession=null,stopParticipants=null;
+// Sesioa fitxan gordetzen da; beste fitxek ez dute irakaslea ordezkatzen.
+
+function render(names=[]){$('board').replaceChildren();for(let i=0;i<25;i++){const el=document.createElement('div');el.className='student '+(names[i]?'on':'');const bulb=document.createElement('span');bulb.className='bulb';const name=document.createElement('span');name.className='nick';name.textContent=names[i]||'';el.append(bulb,name);$('board').append(el);} $('count').textContent=names.length+' / 25 IKASLE ERREGISTRATUTA';$('display').textContent=names.length+' IKASLE SARTUTA';}
+function cleanListeners(){if(stopSession){stopSession();stopSession=null;}if(stopParticipants){stopParticipants();stopParticipants=null;}}
+function makePin(){let a=new Uint32Array(1);crypto.getRandomValues(a);return String(100000+a[0]%900000);}
+async function observe(newPin){cleanListeners();pin=newPin;$('pin').textContent=pin;$('copy').disabled=false;$('copyPin').disabled=false;$('closeSession').disabled=false;stopSession=onSnapshot(doc(db,'irakurketa_saioak',pin),s=>{if(!s.exists()){message('Saioa ez dago erabilgarri.',true);return;}if(!s.data().open)message('Saioa itxita dago.');},e=>message('Saioa entzutean: '+errorText(e),true));
+stopParticipants=onSnapshot(query(collection(db,'irakurketa_saioak',pin,'partehartzaileak'),orderBy('joinedAt')),s=>{render(s.docs.slice(0,25).map(x=>x.data().nick));},e=>message('Ikasleak entzutean: '+errorText(e),true));}
+render();
+try{if(!cfg?.apiKey||!cfg?.appId||!cfg?.projectId)throw Error('Bete firebase-config.js');
+const app=initializeApp(cfg);auth=initializeAuth(app,{persistence:browserSessionPersistence});db=getFirestore(app);
+onAuthStateChanged(auth,user=>{uid=user?.uid||null;const authorized=uid==='hW0ZtZEXfSNP6pTfBe5yu9J60Im1';$('account').textContent=user?.email?(authorized?user.email+' · baimenduta':user.email+' · ez baimenduta'):'Saioa hasi gabe';$('create').disabled=!authorized;$('resume').disabled=!authorized;if(!authorized && pin){cleanListeners();pin=null;$('pin').textContent='------';render();$('copy').disabled=true;$('copyPin').disabled=true;$('closeSession').disabled=true;}});$('login').disabled=false;message('Sartu irakasle-kontuarekin.');
+}catch(e){message(errorText(e),true);}
+$('login').onclick=async()=>{try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value);$('password').value='';message('Saioa hasita. SORTU PIN bat.');}catch(e){message('Sarrera: '+errorText(e),true);}};
+$('create').onclick=async()=>{if(!uid)return;try{for(let i=0;i<20;i++){const candidate=makePin(),ref=doc(db,'irakurketa_saioak',candidate);try{await setDoc(ref,{pin:candidate,ownerUid:uid,open:true,createdAt:serverTimestamp(),participantCount:0});await observe(candidate);message('PIN sortuta. Argitaratutako orrian IKASLEEN LOTURA kopiatu eta partekatu.');return;}catch(e){if(e.code==='permission-denied'&&(await getDoc(ref)).exists())continue;throw e;}}throw Error('Ezin izan da PIN librerik sortu.');}catch(e){message('Saioa sortzean: '+errorText(e),true);}};
+$('resume').onclick=async()=>{
+ const candidate=$('resumePin').value.trim();
+ if(!/^\d{6}$/.test(candidate)){message('Sei digituko PINa idatzi.',true);return;}
+ try{
+   const snap=await getDoc(doc(db,'irakurketa_saioak',candidate));
+   if(!snap.exists())throw Error('PIN hori ez da aurkitu.');
+   if(snap.data().ownerUid!==uid)throw Error('Saio hori beste irakasle batena da.');
+   await observe(candidate);
+   message('Saio zaharra berreskuratuta. '+(snap.data().open?'Irekita dago.':'Itxita dago.' ));
+ }catch(e){message('Berreskuratzean: '+errorText(e),true);}
+};
+$('copyPin').onclick=async()=>{if(!pin)return;try{await navigator.clipboard.writeText(pin);message('PINa kopiatuta: '+pin);}catch(e){message('PINa: '+pin);}};
+$('copy').onclick=()=>{if(!pin)return;const u=new URL('index.html',location.href);u.searchParams.set('pin',pin);const url=u.href;if(location.protocol==='file:'){message('Beste gailuetarako ezin da file:// lotura erabili. Argitaratu GitHub Pagesen; bitartean PINa beste fitxa batean probatu.');return;}if(navigator.clipboard?.writeText){navigator.clipboard.writeText(url).then(()=>message('Lotura kopiatuta.')).catch(()=>message('Lotura: '+url));}else message('Lotura: '+url);};
+$('closeSession').onclick=async()=>{if(!pin)return;try{await updateDoc(doc(db,'irakurketa_saioak',pin),{open:false});message('Saioa itxita. Ikasle berriak ezin dira sartu.');$('closeSession').disabled=true;}catch(e){message(errorText(e),true);}};
+</script></body></html>

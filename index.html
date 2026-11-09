@@ -1,0 +1,39 @@
+<!doctype html><html lang="eu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="estiloa.css"><title>IRAKURKETA PARTEKATUA — V16 Firestore</title></head><body><div class="shell joinlayout"><header><h1>◉ IRAKURKETA PARTEKATUA</h1><span class="status">FIRESTORE · V16 PROBA</span></header>
+<div class="panel stack" style="margin-top:12px"><h2>IKASLEAREN SARRERA</h2><label for="pin">SAIOAREN KODEA</label><input id="pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 digituko kodea">
+<label for="nick">EZIZENA</label><input id="nick" maxlength="18" autocomplete="off" placeholder="Zure ezizena">
+<button id="join" class="primary" disabled>SARTU</button><div id="state" class="notice">PIN + ezizena. Google konturik gabe.</div>
+<div id="joined" class="screen" hidden><small>ERREGISTRATUTA</small><div id="greeting"></div><div>ITXARON IRAKASLEAREN AGINDUARI</div></div>
+<div class="notice">V16 KONEXIO-PROBA: testuak, laburpenak eta galderak geroago gehituko ditugu.</div>
+</div></div><script src="firebase-config.js"></script><script type="module">import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js';
+import {initializeAuth,browserSessionPersistence,signInWithEmailAndPassword,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-auth.js';
+import {getFirestore,doc,collection,getDoc,setDoc,runTransaction,onSnapshot,query,orderBy,serverTimestamp,updateDoc,writeBatch} from 'https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js';
+const $=id=>document.getElementById(id);
+const cfg=window.IP_FIREBASE_CONFIG;
+const errorText=e=>({ 'permission-denied':'Baimenik ez. Egiaztatu Firestore arauak eta irakasle-kontua.', 'unavailable':'Konexiorik ez. Egiaztatu Internet.', 'auth/invalid-credential':'Helbidea edo pasahitza ez dira zuzenak.'})[e.code] || (e.message||String(e));
+function message(t,bad=false){$('state').textContent=t;$('state').className='notice '+(bad?'error':'');}
+
+const params=new URLSearchParams(location.search);$('pin').value=(params.get('pin')||'').replace(/\D/g,'').slice(0,6);
+let auth,db,userId=null,busy=false,stopSession=null;
+// browserSessionPersistence: tab bakoitzak bere Firebase saioa mantentzen du.
+
+try{if(!cfg?.apiKey||!cfg?.projectId||!cfg?.appId)throw Error('Firebase konfigurazioa falta da');const app=initializeApp(cfg);auth=initializeAuth(app,{persistence:browserSessionPersistence});db=getFirestore(app);const user=await signInAnonymously(auth);userId=user.user.uid;$('join').disabled=false;message('Prest. Idatzi PINa eta ezizena.');}catch(e){message('Konexioaren errorea: '+errorText(e),true);}
+$('join').onclick=async()=>{if(busy||!userId)return;const pin=$('pin').value.trim(),nick=$('nick').value.trim();
+if(!/^\d{6}$/.test(pin)){message('Sei digituko PINa idatzi.',true);return;}
+if(nick.length<2||nick.length>18){message('Ezizena 2-18 karakterekoa izan behar da.',true);return;}
+busy=true;$('join').disabled=true;
+try{
+const sr=doc(db,'irakurketa_saioak',pin),pr=doc(db,'irakurketa_saioak',pin,'partehartzaileak',userId);
+await runTransaction(db,async tx=>{
+  const [ss,ps]=await Promise.all([tx.get(sr),tx.get(pr)]);
+  if(!ss.exists()||!ss.data().open)throw Error('PINa ez dago aktibo.');
+  if(ps.exists()){if(ps.data().nick!==nick)throw Error('Gailu hau beste ezizen batekin sartuta dago.');return;}
+  if(ss.data().participantCount>=25)throw Error('25 lekuak beteta daude.');
+  tx.update(sr,{participantCount:ss.data().participantCount+1});
+  tx.set(pr,{uid:userId,nick,joinedAt:serverTimestamp()});
+});
+$('pin').disabled=true;$('nick').disabled=true;$('join').hidden=true;
+$('joined').hidden=false;$('greeting').textContent=nick;message('Saioan erregistratuta.');
+stopSession=onSnapshot(sr,s=>{if(!s.exists()||!s.data().open){$('joined').hidden=true;message('Irakasleak saioa itxi du.',true);}},e=>message(errorText(e),true));
+}catch(e){message('Ezin da sartu: '+errorText(e),true);$('join').disabled=false;}finally{busy=false;}
+};
+</script></body></html>
